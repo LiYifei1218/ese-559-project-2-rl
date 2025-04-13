@@ -1,13 +1,16 @@
 import gymnasium as gym
+import project2_env
 
 # Initialise the environment
-env = gym.make("LunarLander-v3", render_mode="human")
+env = gym.make("project2_env/RobotWorld-v0", render_mode="human")
 
 # Reset the environment to generate the first observation
-observation, info = env.reset(seed=42)
-for _ in range(1000):
+observation, info = env.reset()
+for _ in range(10000):
     # this is where you would insert your policy
     action = env.action_space.sample()
+
+    print("Action taken:", action)
 
     # step (transition) through the environment with the action
     # receiving the next observation, reward and if the episode has terminated or truncated

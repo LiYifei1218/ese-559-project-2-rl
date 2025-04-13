@@ -6,39 +6,81 @@ import numpy as np
 
 import pickle
 
-class GridWorldEnv(gym.Env):
+from project2 import move
+
+class RobotWorldEnv(gym.Env):
     metadata = {"render_modes": ["human", "rgb_array"], "render_fps": 4}
 
-    def __init__(self, render_mode=None, size=5):
-        self.size = size  # The size of the square grid
+    def __init__(self, render_mode=None):
+        self.size = 3  # The size of the world
         self.window_size = 512  # The size of the PyGame window
 
         # Observations are dictionaries with the agent's and the target's location.
         # Each location is encoded as an element of {0, ..., `size`}^2,
         # i.e. MultiDiscrete([size, size]).
-        self.observation_space = spaces.Dict(
-            {
-                "agent": spaces.Box(0, size - 1, shape=(2,), dtype=int),
-                "target": spaces.Box(0, size - 1, shape=(2,), dtype=int),
-            }
+
+        '''
+        3 * 3 continuous world
+        robot: x, y, theta
+        N obstacles
+        obstacle: x, y, radius
+        goal: x, y, tolerance
+        '''
+
+        num_obstacles = 3
+
+        # Robot state: [x, y, theta]
+        robot_space = gym.spaces.Box(
+            low=np.array([-1.3, -1.3, -np.pi], dtype=np.float32),
+            high=np.array([1.3, 1.3, np.pi], dtype=np.float32),
+            dtype=np.float32
         )
+
+        # Obstacles: an array of N obstacles, each with [x, y, radius]
+        obstacle_low = np.array([-1.5, -1.5, 0], dtype=np.float32)
+        obstacle_high = np.array([1.5, 1.5, 3], dtype=np.float32)
+
+        # Create a space with shape (num_obstacles, 3)
+        obstacles_space = gym.spaces.Box(
+            low=np.tile(obstacle_low, (num_obstacles, 1)),
+            high=np.tile(obstacle_high, (num_obstacles, 1)),
+            dtype=np.float32
+        )
+
+        # Goal: [x, y, tolerance]
+        goal_space = gym.spaces.Box(
+            low=np.array([-1.5, -1.5, 0], dtype=np.float32),
+            high=np.array([1.5, 1.5, 3], dtype=np.float32),
+            dtype=np.float32
+        )
+
+        # Combine them into a Dict space
+        self.observation_space = gym.spaces.Dict({
+            'agent': robot_space,
+            'obstacles': obstacles_space,
+            'goal': goal_space
+        })
 
         # We have 22 actions
         self.action_space = spaces.Discrete(22)
 
         # Read action mappings from a pickle file
+        with open("data/action_map_project_2.pkl", "rb") as f:
+            action_mappings = pickle.load(f)
 
         """
         The following dictionary maps abstract actions from `self.action_space` to 
         the direction we will walk in if that action is taken.
         i.e. 0 corresponds to "right", 1 to "up" etc.
         """
-        self._action_to_direction = {
-            Actions.right.value: np.array([1, 0]),
-            Actions.up.value: np.array([0, 1]),
-            Actions.left.value: np.array([-1, 0]),
-            Actions.down.value: np.array([0, -1]),
-        }
+        # self._action_to_direction = {
+        #     Actions.right.value: np.array([1, 0]),
+        #     Actions.up.value: np.array([0, 1]),
+        #     Actions.left.value: np.array([-1, 0]),
+        #     Actions.down.value: np.array([0, -1]),
+        # }
+
+        self._action_to_direction = action_mappings
 
         assert render_mode is None or render_mode in self.metadata["render_modes"]
         self.render_mode = render_mode
@@ -54,12 +96,12 @@ class GridWorldEnv(gym.Env):
         self.clock = None
 
     def _get_obs(self):
-        return {"agent": self._agent_location, "target": self._target_location}
+        return {"agent": self._agent_state, "obstacles": self._obstacles, "goal": self._target_properties}
 
     def _get_info(self):
         return {
             "distance": np.linalg.norm(
-                self._agent_location - self._target_location, ord=1
+                self._agent_state[:2] - self._target_properties[:2]
             )
         }
 
@@ -67,16 +109,16 @@ class GridWorldEnv(gym.Env):
         # We need the following line to seed self.np_random
         super().reset(seed=seed)
 
-        # Choose the agent's location uniformly at random
-        self._agent_location = self.np_random.integers(0, self.size, size=2, dtype=int)
+        env_num = 1
 
-        # We will sample the target's location randomly until it does not
-        # coincide with the agent's location
-        self._target_location = self._agent_location
-        while np.array_equal(self._target_location, self._agent_location):
-            self._target_location = self.np_random.integers(
-                0, self.size, size=2, dtype=int
-            )
+        if env_num == 1:
+            self._agent_state = np.array([-1.2, -1.2, 0.0])
+            self._target_properties = np.array([1.2, 1.2, 0.08])
+            self._obstacles = np.array([
+                [-0.4, -0.4, 0.16],
+                [0.1, -0.4, 0.16],
+                [-0.4, 0.1, 0.17]
+            ])
 
         observation = self._get_obs()
         info = self._get_info()
@@ -87,15 +129,38 @@ class GridWorldEnv(gym.Env):
         return observation, info
 
     def step(self, action):
-        # Map the action (element of {0,1,2,3}) to the direction we walk in
-        direction = self._action_to_direction[action]
-        # We use `np.clip` to make sure we don't leave the grid
-        self._agent_location = np.clip(
-            self._agent_location + direction, 0, self.size - 1
+
+        linear_velocity = self._action_to_direction[action][0]
+        angular_velocity = self._action_to_direction[action][1]
+
+        # call move function in project pkg to update the agent's state
+        self._agent_state = move(
+            self._agent_state,
+            (linear_velocity, angular_velocity)
         )
-        # An episode is done iff the agent has reached the target
-        terminated = np.array_equal(self._agent_location, self._target_location)
-        reward = 1 if terminated else 0  # Binary sparse rewards
+
+        # An episode is done if the agent has reached the target
+        goal_reached = np.linalg.norm(
+            self._agent_state[:2] - self._target_properties[:2]
+        ) < self._target_properties[2]
+
+        # or collision with obstacles
+        collision = False
+        for obs in self._obstacles:
+            if np.linalg.norm(self._agent_state[:2] - obs[:2]) < obs[2]:
+                collision = True
+                break
+
+        terminated = goal_reached or collision
+
+        # reward -10 if collision, +10 if goal reached, -1 otherwise
+        if collision:
+            reward = -10
+        elif goal_reached:
+            reward = 10
+        else:
+            reward = -1
+
         observation = self._get_obs()
         info = self._get_info()
 
@@ -118,43 +183,69 @@ class GridWorldEnv(gym.Env):
 
         canvas = pygame.Surface((self.window_size, self.window_size))
         canvas.fill((255, 255, 255))
-        pix_square_size = (
+
+        vis_size = (
             self.window_size / self.size
-        )  # The size of a single grid square in pixels
+        )  # The size of a unit square in pixels
+
+        vis_target_x = (self._target_properties[0] + 1.5) * vis_size
+        vis_target_y = (self._target_properties[1] + 1.5) * vis_size
 
         # First we draw the target
-        pygame.draw.rect(
+        pygame.draw.circle(
             canvas,
             (255, 0, 0),
-            pygame.Rect(
-                pix_square_size * self._target_location,
-                (pix_square_size, pix_square_size),
-            ),
+            (vis_target_x, vis_target_y),
+            vis_size * self._target_properties[2],
         )
+
+        vis_robot_x = (self._agent_state[0] + 1.5) * vis_size
+        vis_robot_y = (self._agent_state[1] + 1.5) * vis_size
+
         # Now we draw the agent
         pygame.draw.circle(
             canvas,
             (0, 0, 255),
-            (self._agent_location + 0.5) * pix_square_size,
-            pix_square_size / 3,
+            (vis_robot_x, vis_robot_y),
+            vis_size / 16,
         )
 
-        # Finally, add some gridlines
-        for x in range(self.size + 1):
+        # Finally, add obstacles
+        for obs in self._obstacles:
+            vis_obstacle_x = (obs[0] + 1.5) * vis_size
+            vis_obstacle_y = (obs[1] + 1.5) * vis_size
+            pygame.draw.circle(
+                canvas,
+                (0, 255, 0),
+                (vis_obstacle_x, vis_obstacle_y),
+                vis_size * obs[2],
+            )
+
+        # draw origin
+        pygame.draw.circle(
+            canvas,
+            (0, 0, 0),
+            (self.window_size / 2, self.window_size / 2),
+            5
+        )
+
+        # draw gridlines around origin (shifted by 1.5 units to center the grid)
+        for x in range(-1, 3):
             pygame.draw.line(
                 canvas,
                 0,
-                (0, pix_square_size * x),
-                (self.window_size, pix_square_size * x),
+                (0, (x + 1.5) * vis_size),
+                (self.window_size, (x + 1.5) * vis_size),
                 width=3,
             )
             pygame.draw.line(
                 canvas,
                 0,
-                (pix_square_size * x, 0),
-                (pix_square_size * x, self.window_size),
+                ((x + 1.5) * vis_size, 0),
+                ((x + 1.5) * vis_size, self.window_size),
                 width=3,
             )
+
 
         if self.render_mode == "human":
             # The following line copies our drawings from `canvas` to the visible window

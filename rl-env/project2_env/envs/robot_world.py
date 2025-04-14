@@ -9,7 +9,7 @@ import pickle
 from project2 import move
 
 class RobotWorldEnv(gym.Env):
-    metadata = {"render_modes": ["human", "rgb_array"], "render_fps": 4}
+    metadata = {"render_modes": ["human", "rgb_array"], "render_fps": 30}
 
     def __init__(self, render_mode=None):
         self.size = 3  # The size of the world
@@ -146,9 +146,9 @@ class RobotWorldEnv(gym.Env):
 
         # reward -10 if collision, +10 if goal reached, -1 otherwise
         if collision:
-            reward = -10
+            reward = -100
         elif goal_reached:
-            reward = 10
+            reward = 100
         else:
             reward = -1
 

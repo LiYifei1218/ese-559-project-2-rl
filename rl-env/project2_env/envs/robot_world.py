@@ -54,12 +54,14 @@ class RobotWorldEnv(gym.Env):
             dtype=np.float32
         )
 
-        # Combine them into a Dict space
-        self.observation_space = gym.spaces.Dict({
-            'agent': robot_space,
-            'obstacles': obstacles_space,
-            'goal': goal_space
-        })
+        # # Combine them into a Dict space
+        # self.observation_space = gym.spaces.Dict({
+        #     'agent': robot_space,
+        #     'obstacles': obstacles_space,
+        #     'goal': goal_space
+        # })
+
+        self.observation_space = robot_space
 
         # We have 22 actions
         self.action_space = spaces.Discrete(22)
@@ -67,18 +69,6 @@ class RobotWorldEnv(gym.Env):
         # Read action mappings from a pickle file
         with open("data/action_map_project_2.pkl", "rb") as f:
             action_mappings = pickle.load(f)
-
-        """
-        The following dictionary maps abstract actions from `self.action_space` to 
-        the direction we will walk in if that action is taken.
-        i.e. 0 corresponds to "right", 1 to "up" etc.
-        """
-        # self._action_to_direction = {
-        #     Actions.right.value: np.array([1, 0]),
-        #     Actions.up.value: np.array([0, 1]),
-        #     Actions.left.value: np.array([-1, 0]),
-        #     Actions.down.value: np.array([0, -1]),
-        # }
 
         self._action_to_direction = action_mappings
 
@@ -96,7 +86,8 @@ class RobotWorldEnv(gym.Env):
         self.clock = None
 
     def _get_obs(self):
-        return {"agent": self._agent_state, "obstacles": self._obstacles, "goal": self._target_properties}
+        return self._agent_state
+        # return {"agent": self._agent_state, "obstacles": self._obstacles, "goal": self._target_properties}
 
     def _get_info(self):
         return {

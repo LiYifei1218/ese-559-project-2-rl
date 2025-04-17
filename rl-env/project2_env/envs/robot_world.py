@@ -11,7 +11,7 @@ from project2 import move
 class RobotWorldEnv(gym.Env):
     metadata = {"render_modes": ["human", "rgb_array"], "render_fps": 30}
 
-    def __init__(self, render_mode=None):
+    def __init__(self, render_mode=None, env_num=1):
         self.size = 3  # The size of the world
         self.window_size = 512  # The size of the PyGame window
 
@@ -28,6 +28,8 @@ class RobotWorldEnv(gym.Env):
         '''
 
         self._elapsed_steps = 0
+
+        self.env_num = env_num
 
         num_obstacles = 3
 
@@ -143,9 +145,7 @@ class RobotWorldEnv(gym.Env):
 
         self._elapsed_steps = 0
 
-        env_num = 1
-
-        if env_num == 1:
+        if self.env_num == 1:
             self._agent_state = np.array([-1.2, -1.2, 0.0])
             self._target_properties = np.array([1.2, 1.2, 0.08])
             self._obstacles = np.array([
@@ -195,8 +195,8 @@ class RobotWorldEnv(gym.Env):
         obs, info = self._get_obs(), self._get_info()
 
         # ------- reward shaping -------
-        reward  = 3 * (prev_info["distance_to_goal"] - info["distance_to_goal"])
-        reward += -0.1
+        reward  = 5 * (prev_info["distance_to_goal"] - info["distance_to_goal"])
+        reward += -0.2
         if info["min_obstacle_clear"] < 0.05:
             reward += -10 * (0.05 - info["min_obstacle_clear"])
         if info["collision"]:

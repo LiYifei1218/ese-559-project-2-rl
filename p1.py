@@ -58,9 +58,9 @@ class DQNAgent:
 
         self.optimizer = optim.Adam(self.q_network.parameters(), lr=lr)
 
-    def select_action(self, state):
+    def select_action(self, state, training=True):
         # Use epsilon-greedy policy
-        if random.random() < self.epsilon:
+        if random.random() < self.epsilon and training:
             return random.randrange(self.action_dim)
         else:
             state_tensor = torch.FloatTensor(state).unsqueeze(0).to(self.device)
@@ -106,6 +106,30 @@ class DQNAgent:
         if self.epsilon > self.epsilon_end:
             self.epsilon *= self.epsilon_decay
 
+    # ---------- persistence ----------
+    def save(self, path: str):
+        torch.save(
+            {
+                "q_net":      self.q_network.state_dict(),
+                "target_net": self.target_network.state_dict(),
+                "optimizer":  self.optimizer.state_dict(),
+                "epsilon":    self.epsilon,
+                "step":       getattr(self, "training_steps", 0)
+            },
+            path
+        )
+        print(f"[✓] Saved checkpoint to {path}")
+
+    def load(self, path: str, eval_mode: bool = False):
+        ckpt = torch.load(path, map_location=self.device)
+        self.q_network.load_state_dict(ckpt["q_net"])
+        self.target_network.load_state_dict(ckpt["target_net"])
+        self.optimizer.load_state_dict(ckpt["optimizer"])
+        self.epsilon = 0.0 if eval_mode else ckpt["epsilon"]
+        # Switch the policy net to eval() so layers like BatchNorm / Dropout behave correctly
+        self.q_network.eval() if eval_mode else self.q_network.train()
+        self.target_network.eval()
+        print(f"[✓] Loaded checkpoint from {path}  (eval_mode={eval_mode})")
 
 # Training loop for the DQN agent
 def train_dqn(agent, env, num_episodes=500, target_update_interval=10):
@@ -141,27 +165,39 @@ def train_dqn(agent, env, num_episodes=500, target_update_interval=10):
 
 # Main routine to initialize environment and start training
 if __name__ == "__main__":
-    # Instantiate your custom environment
-    env = gym.make("project2_env/RobotWorld-v0", render_mode="human")
 
-    # Define dimensions from the environment's observation and action spaces.
-    state_dim = env.observation_space.shape[0]  # For example: 3 (x, y, theta)
-    action_dim = env.action_space.n  # 22 discrete actions
+    mode = "train"  # Change to "test" for evaluation mode
 
-    # Create a DQNAgent instance with chosen hyperparameters.
-    agent = DQNAgent(state_dim, action_dim, hidden_dim=64, lr=1e-3,
-                     gamma=0.99, epsilon_start=1.0, epsilon_end=0.05,
-                     epsilon_decay=0.995, memory_capacity=10000, batch_size=64)
+    if mode == "test":
+        env = gym.make("project2_env/RobotWorld-v0")
+        agent.load("checkpoints/dqn_robot.pth", eval_mode=True)
 
-    # Train the agent
-    scores = train_dqn(agent, env, num_episodes=500, target_update_interval=10)
 
-    # Plot the rewards per episode
-    plt.figure(figsize=(10, 5))
-    plt.plot(scores, label='Episode Reward')
-    plt.xlabel("Episode")
-    plt.ylabel("Total Reward")
-    plt.title("Reward per Episode Over Training")
-    plt.legend()
-    plt.grid(True)
-    plt.show()
+    else:
+        # Instantiate your custom environment
+        # env = gym.make("project2_env/RobotWorld-v0", render_mode="human")
+        env = gym.make("project2_env/RobotWorld-v0")
+
+        # Define dimensions from the environment's observation and action spaces.
+        state_dim = env.observation_space.shape[0]  # For example: 3 (x, y, theta)
+        action_dim = env.action_space.n  # 22 discrete actions
+
+        # Create a DQNAgent instance with chosen hyperparameters.
+        agent = DQNAgent(state_dim, action_dim, hidden_dim=64, lr=1e-3,
+                         gamma=0.99, epsilon_start=1.0, epsilon_end=0.05,
+                         epsilon_decay=0.995, memory_capacity=10000, batch_size=64)
+
+        # Train the agent
+        scores = train_dqn(agent, env, num_episodes=200, target_update_interval=10)
+        # Save the trained model
+        agent.save("dqn_robotworld.pth")
+
+        # Plot the rewards per episode
+        plt.figure(figsize=(10, 5))
+        plt.plot(scores, label='Episode Reward')
+        plt.xlabel("Episode")
+        plt.ylabel("Total Reward")
+        plt.title("Reward per Episode Over Training")
+        plt.legend()
+        plt.grid(True)
+        plt.show()

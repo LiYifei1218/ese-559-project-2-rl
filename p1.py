@@ -7,6 +7,8 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 
+import matplotlib.pyplot as plt
+
 # Assuming your RobotWorldEnv is defined as in your snippet:
 import project2_env
 
@@ -35,7 +37,7 @@ class DQNAgent:
                  gamma=0.99,
                  epsilon_start=1.0,
                  epsilon_end=0.05,
-                 epsilon_decay=0.995,
+                 epsilon_decay=0.99,
                  memory_capacity=10000,
                  batch_size=64):
         self.state_dim = state_dim
@@ -118,7 +120,7 @@ def train_dqn(agent, env, num_episodes=500, target_update_interval=10):
             action = agent.select_action(state)
             # Gymnasium step returns: observation, reward, terminated, truncated, info
             next_state, reward, terminated, truncated, info = env.step(action)
-            done = terminated or truncated or (total_reward < -500)
+            done = terminated or truncated or (total_reward < -1000)
 
             agent.store_transition(state, action, reward, next_state, done)
             agent.update()
@@ -140,7 +142,7 @@ def train_dqn(agent, env, num_episodes=500, target_update_interval=10):
 # Main routine to initialize environment and start training
 if __name__ == "__main__":
     # Instantiate your custom environment
-    env = gym.make("project2_env/RobotWorld-v0")
+    env = gym.make("project2_env/RobotWorld-v0", render_mode="human")
 
     # Define dimensions from the environment's observation and action spaces.
     state_dim = env.observation_space.shape[0]  # For example: 3 (x, y, theta)
@@ -153,3 +155,13 @@ if __name__ == "__main__":
 
     # Train the agent
     scores = train_dqn(agent, env, num_episodes=500, target_update_interval=10)
+
+    # Plot the rewards per episode
+    plt.figure(figsize=(10, 5))
+    plt.plot(scores, label='Episode Reward')
+    plt.xlabel("Episode")
+    plt.ylabel("Total Reward")
+    plt.title("Reward per Episode Over Training")
+    plt.legend()
+    plt.grid(True)
+    plt.show()

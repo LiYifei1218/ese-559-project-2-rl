@@ -27,6 +27,8 @@ class RobotWorldEnv(gym.Env):
         goal: x, y, tolerance
         '''
 
+        self._elapsed_steps = 0
+
         num_obstacles = 3
 
         # Robot state: [x, y, theta]
@@ -61,7 +63,18 @@ class RobotWorldEnv(gym.Env):
         #     'goal': goal_space
         # })
 
-        self.observation_space = robot_space
+        # self.observation_space = robot_space
+
+        low = np.array([-1.3, -1.3, -1, -1,  # pose
+                        -3, -3, 0, -np.pi,  # goal vec
+                        -1.5, -1.5, -1.5  # clearances (≤0 means inside)
+                        ], dtype=np.float32)
+        high = np.array([1.3, 1.3, 1, 1,
+                         3, 3, np.sqrt(18), np.pi,
+                         1.5, 1.5, 1.5
+                         ], dtype=np.float32)
+
+        self.observation_space = gym.spaces.Box(low=low, high=high, dtype=np.float32)
 
         # We have 22 actions
         self.action_space = spaces.Discrete(22)
@@ -85,20 +98,50 @@ class RobotWorldEnv(gym.Env):
         self.window = None
         self.clock = None
 
+    # def _get_obs(self):
+    #     return self._agent_state
+    #     # return {"agent": self._agent_state, "obstacles": self._obstacles, "goal": self._target_properties}
+
     def _get_obs(self):
-        return self._agent_state
-        # return {"agent": self._agent_state, "obstacles": self._obstacles, "goal": self._target_properties}
+        # pose
+        x, y, th = self._agent_state
+        pose = np.array([x, y, np.sin(th), np.cos(th)], dtype=np.float32)
+
+        # goal in robot frame
+        dx, dy = self._target_properties[:2] - self._agent_state[:2]
+        d_goal = np.hypot(dx, dy)
+        bearing_err = np.arctan2(dy, dx) - th
+        bearing_err = (bearing_err + np.pi) % (2 * np.pi) - np.pi  # wrap
+        goal_vec = np.array([dx, dy, d_goal, bearing_err], dtype=np.float32)
+
+        # obstacle clearances
+        clearances = np.array(
+            [np.linalg.norm([x - ox, y - oy]) - r
+             for ox, oy, r in self._obstacles],
+            dtype=np.float32
+        )
+
+        return np.concatenate((pose, goal_vec, clearances))
 
     def _get_info(self):
+        d_goal = np.linalg.norm(self._agent_state[:2] - self._target_properties[:2])
+        min_clearance = min(
+            np.linalg.norm(self._agent_state[:2] - obs[:2]) - obs[2]
+            for obs in self._obstacles
+        )
         return {
-            "distance": np.linalg.norm(
-                self._agent_state[:2] - self._target_properties[:2]
-            )
+            "distance_to_goal": d_goal,
+            "min_obstacle_clear": min_clearance,
+            "goal_reached": d_goal < self._target_properties[2],
+            "collision": min_clearance < 0,
+            "step": self._elapsed_steps  # if you track it
         }
 
     def reset(self, seed=None, options=None):
         # We need the following line to seed self.np_random
         super().reset(seed=seed)
+
+        self._elapsed_steps = 0
 
         env_num = 1
 
@@ -117,9 +160,13 @@ class RobotWorldEnv(gym.Env):
         if self.render_mode == "human":
             self._render_frame()
 
+        self.elapsed_steps = 0
+
         return observation, info
 
     def step(self, action):
+
+        prev_info = self._get_info()
 
         linear_velocity = self._action_to_direction[action][0]
         angular_velocity = self._action_to_direction[action][1]
@@ -130,35 +177,38 @@ class RobotWorldEnv(gym.Env):
             (linear_velocity, angular_velocity)
         )
 
-        # An episode is done if the agent has reached the target
-        goal_reached = np.linalg.norm(
-            self._agent_state[:2] - self._target_properties[:2]
-        ) < self._target_properties[2]
+        # # An episode is done if the agent has reached the target
+        # goal_reached = np.linalg.norm(
+        #     self._agent_state[:2] - self._target_properties[:2]
+        # ) < self._target_properties[2]
+        #
+        # # or collision with obstacles
+        # collision = False
+        # for obs in self._obstacles:
+        #     if np.linalg.norm(self._agent_state[:2] - obs[:2]) < obs[2]:
+        #         collision = True
+        #         break
+        #
+        # terminated = goal_reached or collision
 
-        # or collision with obstacles
-        collision = False
-        for obs in self._obstacles:
-            if np.linalg.norm(self._agent_state[:2] - obs[:2]) < obs[2]:
-                collision = True
-                break
+        self._elapsed_steps += 1
+        obs, info = self._get_obs(), self._get_info()
 
-        terminated = goal_reached or collision
-
-        # reward -10 if collision, +10 if goal reached, -1 otherwise
-        if collision:
+        # ------- reward shaping -------
+        reward  = 3 * (prev_info["distance_to_goal"] - info["distance_to_goal"])
+        reward += -0.1
+        if info["min_obstacle_clear"] < 0.05:
+            reward += -10 * (0.05 - info["min_obstacle_clear"])
+        if info["collision"]:
             reward = -100
-        elif goal_reached:
+        elif info["goal_reached"]:
             reward = 100
-        else:
-            reward = -1
-
-        observation = self._get_obs()
-        info = self._get_info()
+        terminated = info["collision"] or info["goal_reached"]  or self._elapsed_steps > 200
 
         if self.render_mode == "human":
             self._render_frame()
 
-        return observation, reward, terminated, False, info
+        return obs, reward, terminated, False, info
 
     def render(self):
         if self.render_mode == "rgb_array":

@@ -46,7 +46,10 @@ def make_test_env():
 def evaluate(agent, env, n_episodes=50, render=False):
     returns, steps, successes = [], [], []
     for ep in range(n_episodes):
-        obs, _ = env.reset()       # different seed per run
+
+
+
+        obs, _ = env.reset()
         total_r, n = 0.0, 0
         done = False
 
@@ -80,7 +83,7 @@ def main():
     agent = DQNAgent(
         state_dim  = env.observation_space.shape[0],
         action_dim = env.action_space.n,
-        hidden_dim = 64,                 # keep identical to training run
+        hidden_dim = 128,                 # keep identical to training run
     )
     agent.load(args.ckpt, eval_mode=True)      # sets ε = 0 and .eval()
 

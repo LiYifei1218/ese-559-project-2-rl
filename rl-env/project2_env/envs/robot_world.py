@@ -31,52 +31,35 @@ class RobotWorldEnv(gym.Env):
 
         self.env_num = env_num
 
-        num_obstacles = 3
+        self.range_max = 1.0
+        self.num_scans = 90
+        self.scan_step = 0.1
 
-        # Robot state: [x, y, theta]
-        robot_space = gym.spaces.Box(
-            low=np.array([-1.3, -1.3, -np.pi], dtype=np.float32),
-            high=np.array([1.3, 1.3, np.pi], dtype=np.float32),
-            dtype=np.float32
-        )
+        # 1) pose bounds
+        pose_low  = [-1.3, -1.3, -1.0, -1.0]
+        pose_high = [ 1.3,  1.3,  1.0,  1.0]
 
-        # Obstacles: an array of N obstacles, each with [x, y, radius]
-        obstacle_low = np.array([-1.5, -1.5, 0], dtype=np.float32)
-        obstacle_high = np.array([1.5, 1.5, 3], dtype=np.float32)
+        # 2) raw goal‐position bounds (we know goal ∈ [−1.3,1.3]^2)
+        goal_low  = [-1.3, -1.3]
+        goal_high = [ 1.3,  1.3]
 
-        # Create a space with shape (num_obstacles, 3)
-        obstacles_space = gym.spaces.Box(
-            low=np.tile(obstacle_low, (num_obstacles, 1)),
-            high=np.tile(obstacle_high, (num_obstacles, 1)),
-            dtype=np.float32
-        )
+        # 3) goal‐vector bounds:
+        #    dx,dy ∈ [−3,3],  d_goal ∈ [0, √18],  bearing ∈ [−π,π]
+        gv_low  = [-3.0, -3.0, 0.0, -np.pi]
+        gv_high = [ 3.0,  3.0, np.sqrt(18), np.pi]
 
-        # Goal: [x, y, tolerance]
-        goal_space = gym.spaces.Box(
-            low=np.array([-1.5, -1.5, 0], dtype=np.float32),
-            high=np.array([1.5, 1.5, 3], dtype=np.float32),
-            dtype=np.float32
-        )
+        # 4) lidar scan bounds: distances ∈ [0, range_max]
+        scan_low  = [0.0] * self.num_scans
+        scan_high = [self.range_max] * self.num_scans
 
-        # # Combine them into a Dict space
-        # self.observation_space = gym.spaces.Dict({
-        #     'agent': robot_space,
-        #     'obstacles': obstacles_space,
-        #     'goal': goal_space
-        # })
+        low  = np.array(pose_low  + goal_low  + gv_low  + scan_low,
+                        dtype=np.float32)
+        high = np.array(pose_high + goal_high + gv_high + scan_high,
+                        dtype=np.float32)
 
-        # self.observation_space = robot_space
-
-        low = np.array([-1.3, -1.3, -1, -1,  # pose
-                        -3, -3, 0, -np.pi,  # goal vec
-                        -1.5, -1.5, -1.5  # clearances (≤0 means inside)
-                        ], dtype=np.float32)
-        high = np.array([1.3, 1.3, 1, 1,
-                         3, 3, np.sqrt(18), np.pi,
-                         1.5, 1.5, 1.5
-                         ], dtype=np.float32)
-
-        self.observation_space = gym.spaces.Box(low=low, high=high, dtype=np.float32)
+        self.observation_space = spaces.Box(low=low,
+                                            high=high,
+                                            dtype=np.float32)
 
         # We have 22 actions
         self.action_space = spaces.Discrete(22)
@@ -109,21 +92,44 @@ class RobotWorldEnv(gym.Env):
         x, y, th = self._agent_state
         pose = np.array([x, y, np.sin(th), np.cos(th)], dtype=np.float32)
 
+        # goal
+        goal = self._target_properties[:2]  # goal position
+
         # goal in robot frame
-        dx, dy = self._target_properties[:2] - self._agent_state[:2]
+        dx, dy = goal - self._agent_state[:2]
         d_goal = np.hypot(dx, dy)
         bearing_err = np.arctan2(dy, dx) - th
         bearing_err = (bearing_err + np.pi) % (2 * np.pi) - np.pi  # wrap
         goal_vec = np.array([dx, dy, d_goal, bearing_err], dtype=np.float32)
 
-        # obstacle clearances
-        clearances = np.array(
-            [np.linalg.norm([x - ox, y - oy]) - r
-             for ox, oy, r in self._obstacles],
-            dtype=np.float32
-        )
+        # # obstacle clearances
+        # clearances = np.array(
+        #     [np.linalg.norm([x - ox, y - oy]) - r
+        #      for ox, oy, r in self._obstacles],
+        #     dtype=np.float32
+        # )
 
-        return np.concatenate((pose, goal_vec, clearances))
+        # simulated "lidar" scan, 180 rays, 360° around robot
+        scan = np.full(self.num_scans, self.range_max, dtype=np.float32)
+
+        # precompute beam angles in world frame
+        angles = np.linspace(0, 2*np.pi, self.num_scans, endpoint=False)
+        for i, a in enumerate(angles):
+            ray_angle = th + a
+            # step outwards until we hit an obstacle or max range
+            for d in np.arange(self.scan_step, self.range_max + 1e-6, self.scan_step):
+                px = x + d * np.cos(ray_angle)
+                py = y + d * np.sin(ray_angle)
+                hit = False
+                for ox, oy, orad in self._obstacles:
+                    if (px - ox)**2 + (py - oy)**2 <= orad**2:
+                        scan[i] = d
+                        hit = True
+                        break
+                if hit:
+                    break
+
+        return np.concatenate((pose, goal, goal_vec, scan))
 
     def _get_info(self):
         d_goal = np.linalg.norm(self._agent_state[:2] - self._target_properties[:2])
@@ -145,7 +151,9 @@ class RobotWorldEnv(gym.Env):
 
         self._elapsed_steps = 0
 
-        if self.env_num == 1:
+        mode = "test2"  # "test1", "test2", "train1", "train2"
+
+        if mode == "train1":
             self._agent_state = np.array([-1.2, -1.2, 0.0])
             self._target_properties = np.array([1.2, 1.2, 0.08])
             self._obstacles = np.array([
@@ -153,6 +161,86 @@ class RobotWorldEnv(gym.Env):
                 [0.1, -0.4, 0.16],
                 [-0.4, 0.1, 0.17]
             ])
+
+
+        elif mode == "test1":
+            x_sample = np.random.uniform(-1.3, -1.2)
+            y_sample = np.random.uniform(-1.3, -1.2)
+            theta_sample = 0.0 #np.random.uniform(-np.pi, np.pi, size=(2,))
+
+            self._agent_state = np.array([x_sample, y_sample, theta_sample])
+
+            self._target_properties = np.array([1.2, 1.2, 0.08])
+
+            self._obstacles = np.array([
+                [-0.4, -0.4, 0.16],
+                [0.1, -0.4, 0.16],
+                [-0.4, 0.1, 0.17]
+            ])
+
+        elif mode == "train2":
+            pass
+
+        elif mode == "test2":
+            self._agent_state = np.array([-1.2, -1.2, 0.0])
+            self._target_properties = np.array([1.2, 1.2, 0.08])
+
+            # randomly generate obstacles
+            num_obstacles = 3
+            self._obstacles = np.zeros((num_obstacles, 3))
+            for i in range(num_obstacles):
+                x_sample = np.random.uniform(-1.3, 1.3)
+                y_sample = np.random.uniform(-1.3, 1.3)
+                r_sample = np.random.uniform(0.16, 0.20)
+                self._obstacles[i] = [x_sample, y_sample, r_sample]
+
+        elif mode == "test3":
+            self._agent_state = np.array([-1.2, -1.2, 0.0])
+            self._target_properties = np.array([1.2, 1.2, 0.08])
+
+            # randomly generate obstacles
+            num_obstacles = 3
+            self._obstacles = np.zeros((num_obstacles, 3))
+            for i in range(num_obstacles):
+                x_sample = np.random.uniform(-1.3, 1.3)
+                y_sample = np.random.uniform(-1.3, 1.3)
+                r_sample = np.random.uniform(0.16, 0.20)
+                self._obstacles[i] = [x_sample, y_sample, r_sample]
+
+        elif mode == "test9":
+            self._agent_state = np.array([-1.2, -1.2, 0.0])
+            self._target_properties = np.array([1.2, 1.2, 0.08])
+
+            # randomly generate obstacles
+            num_obstacles = 3
+            self._obstacles = np.zeros((num_obstacles, 3))
+            for i in range(num_obstacles):
+                x_sample = np.random.uniform(-1.3, 1.3)
+                y_sample = np.random.uniform(-1.3, 1.3)
+                r_sample = np.random.uniform(0.16, 0.20)
+                self._obstacles[i] = [x_sample, y_sample, r_sample]
+
+
+        # if test_case == 0:
+        #     self._agent_state = np.array([-1.2, -1.2, 0.0])
+        #
+        # if test_case == 1:
+        #
+        #     x_sample = np.random.uniform(-1.3, -1.2)
+        #     y_sample = np.random.uniform(-1.3, -1.2)
+        #     theta_sample = 0.0 #np.random.uniform(-np.pi, np.pi, size=(2,))
+        #
+        #     self._agent_state = np.array([x_sample, y_sample, theta_sample])
+        # elif test_case == 2:
+        #     self._agent_state = np.array([-1.2, -1.2, 0.0])
+        #
+        # if self.env_num == 1:
+        #     self._target_properties = np.array([1.2, 1.2, 0.08])
+        #     self._obstacles = np.array([
+        #         [-0.4, -0.4, 0.16],
+        #         [0.1, -0.4, 0.16],
+        #         [-0.4, 0.1, 0.17]
+        #     ])
 
         observation = self._get_obs()
         info = self._get_info()
@@ -195,10 +283,10 @@ class RobotWorldEnv(gym.Env):
         obs, info = self._get_obs(), self._get_info()
 
         # ------- reward shaping -------
-        reward  = 5 * (prev_info["distance_to_goal"] - info["distance_to_goal"])
+        reward  = 10 * (prev_info["distance_to_goal"] - info["distance_to_goal"])
         reward += -0.2
         if info["min_obstacle_clear"] < 0.05:
-            reward += -10 * (0.05 - info["min_obstacle_clear"])
+            reward += -5 * (0.05 - info["min_obstacle_clear"])
         if info["collision"]:
             reward = -100
         elif info["goal_reached"]:
@@ -270,23 +358,47 @@ class RobotWorldEnv(gym.Env):
             5
         )
 
-        # draw gridlines around origin (shifted by 1.5 units to center the grid)
-        for x in range(-1, 3):
-            pygame.draw.line(
-                canvas,
-                0,
-                (0, (x + 1.5) * vis_size),
-                (self.window_size, (x + 1.5) * vis_size),
-                width=3,
-            )
-            pygame.draw.line(
-                canvas,
-                0,
-                ((x + 1.5) * vis_size, 0),
-                ((x + 1.5) * vis_size, self.window_size),
-                width=3,
-            )
+        # # draw gridlines around origin (shifted by 1.5 units to center the grid)
+        # for x in range(-1, 3):
+        #     pygame.draw.line(
+        #         canvas,
+        #         0,
+        #         (0, (x + 1.5) * vis_size),
+        #         (self.window_size, (x + 1.5) * vis_size),
+        #         width=3,
+        #     )
+        #     pygame.draw.line(
+        #         canvas,
+        #         0,
+        #         ((x + 1.5) * vis_size, 0),
+        #         ((x + 1.5) * vis_size, self.window_size),
+        #         width=3,
+        #     )
+        #
+        # # draw robot heading
+        # pygame.draw.line(
+        #     canvas,
+        #     (0, 0, 255),
+        #     (vis_robot_x, vis_robot_y),
+        #     (
+        #         vis_robot_x + vis_size * np.cos(self._agent_state[2]),
+        #         vis_robot_y + vis_size * np.sin(self._agent_state[2]),
+        #     ),
+        #     width=3,
+        # )
 
+        # draw lidar scan
+        for i, d in enumerate(self._get_obs()[6:]):
+            angle = self._agent_state[2] + (i / self.num_scans) * 2 * np.pi
+            px = vis_robot_x + d * vis_size * np.cos(angle)
+            py = vis_robot_y + d * vis_size * np.sin(angle)
+            pygame.draw.line(
+                canvas,
+                (0, 0, 255),
+                (vis_robot_x, vis_robot_y),
+                (px, py),
+                width=1,
+            )
 
         if self.render_mode == "human":
             # The following line copies our drawings from `canvas` to the visible window

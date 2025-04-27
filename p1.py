@@ -15,7 +15,7 @@ import project2_env
 
 # Define the Q-Network
 class QNetwork(nn.Module):
-    def __init__(self, state_dim, action_dim, hidden_dim=64):
+    def __init__(self, state_dim, action_dim, hidden_dim=256):
         super(QNetwork, self).__init__()
         self.fc1 = nn.Linear(state_dim, hidden_dim)
         self.fc2 = nn.Linear(hidden_dim, hidden_dim)
@@ -175,22 +175,22 @@ if __name__ == "__main__":
 
     else:
         # Instantiate your custom environment
-        env = gym.make("project2_env/RobotWorld-v0", render_mode="human")
-        # env = gym.make("project2_env/RobotWorld-v0")
+        # env = gym.make("project2_env/RobotWorld-v0", render_mode="human")
+        env = gym.make("project2_env/RobotWorld-v0")
 
         # Define dimensions from the environment's observation and action spaces.
         state_dim = env.observation_space.shape[0]  # For example: 3 (x, y, theta)
         action_dim = env.action_space.n  # 22 discrete actions
 
         # Create a DQNAgent instance with chosen hyperparameters.
-        agent = DQNAgent(state_dim, action_dim, hidden_dim=128, lr=1e-3,
+        agent = DQNAgent(state_dim, action_dim, hidden_dim=256, lr=1e-3,
                          gamma=0.99, epsilon_start=1.0, epsilon_end=0.05,
                          epsilon_decay=0.999, memory_capacity=10000, batch_size=64)
 
         # Train the agent
         scores = train_dqn(agent, env, num_episodes=200, target_update_interval=10)
         # Save the trained model
-        agent.save("dqn_robotworld.pth")
+        agent.save("dqn_robotworld9.pth")
 
         # Plot the rewards per episode
         plt.figure(figsize=(10, 5))

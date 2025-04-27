@@ -12,6 +12,9 @@ class RobotWorldEnv(gym.Env):
     metadata = {"render_modes": ["human", "rgb_array"], "render_fps": 30}
 
     def __init__(self, render_mode=None, env_num=1):
+
+        self.trace = []         # <-- add this
+
         self.size = 3  # The size of the world
         self.window_size = 512  # The size of the PyGame window
 
@@ -33,7 +36,7 @@ class RobotWorldEnv(gym.Env):
 
         self.range_max = 1.0
         self.num_scans = 90
-        self.scan_step = 0.1
+        self.scan_step = 0.05
 
         # 1) pose bounds
         pose_low  = [-1.3, -1.3, -1.0, -1.0]
@@ -111,7 +114,6 @@ class RobotWorldEnv(gym.Env):
 
         # simulated "lidar" scan, 180 rays, 360° around robot
         scan = np.full(self.num_scans, self.range_max, dtype=np.float32)
-
         # precompute beam angles in world frame
         angles = np.linspace(0, 2*np.pi, self.num_scans, endpoint=False)
         for i, a in enumerate(angles):
@@ -151,7 +153,7 @@ class RobotWorldEnv(gym.Env):
 
         self._elapsed_steps = 0
 
-        mode = "test2"  # "test1", "test2", "train1", "train2"
+        mode = "test1"  # "test1", "test2", "train1", "train2"
 
         if mode == "train1":
             self._agent_state = np.array([-1.2, -1.2, 0.0])
@@ -188,11 +190,24 @@ class RobotWorldEnv(gym.Env):
             # randomly generate obstacles
             num_obstacles = 3
             self._obstacles = np.zeros((num_obstacles, 3))
-            for i in range(num_obstacles):
+
+            i = 0
+            # ensure obstacles are not too close to the agent or target
+            while i < num_obstacles:
                 x_sample = np.random.uniform(-1.3, 1.3)
                 y_sample = np.random.uniform(-1.3, 1.3)
                 r_sample = np.random.uniform(0.16, 0.20)
-                self._obstacles[i] = [x_sample, y_sample, r_sample]
+
+                if np.linalg.norm(self._agent_state[:2] - [x_sample, y_sample]) > 0.2 and \
+                   np.linalg.norm(self._target_properties[:2] - [x_sample, y_sample]) > 0.2:
+                    self._obstacles[i] = [x_sample, y_sample, r_sample]
+                    i += 1
+            # for i in range(num_obstacles):
+            #     x_sample = np.random.uniform(-1.3, 1.3)
+            #     y_sample = np.random.uniform(-1.3, 1.3)
+            #     r_sample = np.random.uniform(0.16, 0.20)
+            #
+            #     self._obstacles[i] = [x_sample, y_sample, r_sample]
 
         elif mode == "test3":
             self._agent_state = np.array([-1.2, -1.2, 0.0])
@@ -208,8 +223,16 @@ class RobotWorldEnv(gym.Env):
                 self._obstacles[i] = [x_sample, y_sample, r_sample]
 
         elif mode == "test9":
-            self._agent_state = np.array([-1.2, -1.2, 0.0])
-            self._target_properties = np.array([1.2, 1.2, 0.08])
+            x_sample = np.random.uniform(-1.3, 1.3)
+            y_sample = np.random.uniform(-1.3, 1.3)
+            theta_sample = np.random.uniform(-np.pi, np.pi)
+
+            self._agent_state = np.array([x_sample, y_sample, theta_sample])
+
+            x_sample = np.random.uniform(-1.3, 1.3)
+            y_sample = np.random.uniform(-1.3, 1.3)
+
+            self._target_properties = np.array([x_sample, y_sample, 0.08])
 
             # randomly generate obstacles
             num_obstacles = 3
@@ -250,6 +273,11 @@ class RobotWorldEnv(gym.Env):
 
         self.elapsed_steps = 0
 
+        self.trace = []         # <-- clear trace at the start
+        # record initial pos
+        x, y, _ = self._agent_state
+        self.trace.append((x, y))
+
         return observation, info
 
     def step(self, action):
@@ -284,17 +312,20 @@ class RobotWorldEnv(gym.Env):
 
         # ------- reward shaping -------
         reward  = 10 * (prev_info["distance_to_goal"] - info["distance_to_goal"])
-        reward += -0.2
+        reward += -0.5
         if info["min_obstacle_clear"] < 0.05:
-            reward += -5 * (0.05 - info["min_obstacle_clear"])
+            reward += -2.5 * (0.05 - info["min_obstacle_clear"])
         if info["collision"]:
             reward = -100
         elif info["goal_reached"]:
             reward = 100
-        terminated = info["collision"] or info["goal_reached"]  or self._elapsed_steps > 200
+        terminated = info["collision"] or info["goal_reached"]  or self._elapsed_steps > 300
 
         if self.render_mode == "human":
             self._render_frame()
+
+        x, y, _ = self._agent_state
+        self.trace.append((x, y))
 
         return obs, reward, terminated, False, info
 
@@ -320,16 +351,19 @@ class RobotWorldEnv(gym.Env):
         vis_target_x = (self._target_properties[0] + 1.5) * vis_size
         vis_target_y = (self._target_properties[1] + 1.5) * vis_size
 
-        # First we draw the target
-        pygame.draw.circle(
-            canvas,
-            (255, 0, 0),
-            (vis_target_x, vis_target_y),
-            vis_size * self._target_properties[2],
-        )
+
 
         vis_robot_x = (self._agent_state[0] + 1.5) * vis_size
         vis_robot_y = (self._agent_state[1] + 1.5) * vis_size
+
+        if len(self.trace) >= 2:
+            pts = [((tx + 1.5) * vis_size, (ty + 1.5) * vis_size)
+                   for tx, ty in self.trace]
+            pygame.draw.lines(canvas,
+                              (0, 0, 255),    # blue
+                              False,          # not a closed loop
+                              pts,
+                              width=2)
 
         # Now we draw the agent
         pygame.draw.circle(
@@ -349,6 +383,14 @@ class RobotWorldEnv(gym.Env):
                 (vis_obstacle_x, vis_obstacle_y),
                 vis_size * obs[2],
             )
+
+        # First we draw the target
+        pygame.draw.circle(
+            canvas,
+            (255, 0, 0),
+            (vis_target_x, vis_target_y),
+            vis_size * self._target_properties[2],
+        )
 
         # draw origin
         pygame.draw.circle(

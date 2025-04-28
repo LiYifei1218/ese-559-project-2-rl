@@ -4,7 +4,7 @@ import torch
 import gymnasium as gym
 
 import project2_env
-from p1          import DQNAgent               # the class you used to train
+from train          import DQNAgent               # the class you used to train
 
 
 # --------------------------------------------------------------------------- #

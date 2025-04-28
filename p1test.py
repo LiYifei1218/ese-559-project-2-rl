@@ -49,7 +49,7 @@ def evaluate(agent, env, n_episodes=50, render=False):
 
 
 
-        obs, _ = env.reset()
+        obs, _ = env.reset(options={"mode": "test1", "resample": True})
         total_r, n = 0.0, 0
         done = False
 
@@ -83,7 +83,7 @@ def main():
     agent = DQNAgent(
         state_dim  = env.observation_space.shape[0],
         action_dim = env.action_space.n,
-        hidden_dim = 128,                 # keep identical to training run
+        hidden_dim = 256,                 # keep identical to training run
     )
     agent.load(args.ckpt, eval_mode=True)      # sets ε = 0 and .eval()
 

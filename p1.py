@@ -136,7 +136,12 @@ def train_dqn(agent, env, num_episodes=500, target_update_interval=10):
     scores = []
     for episode in range(num_episodes):
         # Reset environment; note that Gymnasium's reset returns (observation, info)
-        state, info = env.reset()
+
+        # for every 10th episode, resample the environment
+        if episode % 10 == 0:
+            state, info = env.reset(options={"mode": "train2", "resample": True})
+        else:
+            state, info = env.reset(options={"mode": "train2", "resample": False})
         total_reward = 0
         done = False
 
@@ -175,8 +180,8 @@ if __name__ == "__main__":
 
     else:
         # Instantiate your custom environment
-        # env = gym.make("project2_env/RobotWorld-v0", render_mode="human")
-        env = gym.make("project2_env/RobotWorld-v0")
+        env = gym.make("project2_env/RobotWorld-v0", render_mode="human")
+        # env = gym.make("project2_env/RobotWorld-v0")
 
         # Define dimensions from the environment's observation and action spaces.
         state_dim = env.observation_space.shape[0]  # For example: 3 (x, y, theta)
@@ -190,7 +195,7 @@ if __name__ == "__main__":
         # Train the agent
         scores = train_dqn(agent, env, num_episodes=200, target_update_interval=10)
         # Save the trained model
-        agent.save("dqn_robotworld9.pth")
+        agent.save("dqn_robotworld.pth")
 
         # Plot the rewards per episode
         plt.figure(figsize=(10, 5))

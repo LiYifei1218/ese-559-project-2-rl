@@ -147,13 +147,27 @@ class RobotWorldEnv(gym.Env):
             "step": self._elapsed_steps  # if you track it
         }
 
+    def _generate_random_obstacles(self, num_obstacles=3):
+        ob = np.zeros((num_obstacles, 3), dtype=np.float32)
+        i = 0
+        while i < num_obstacles:
+            x = self.np_random.uniform(-1.3, 1.3)
+            y = self.np_random.uniform(-1.3, 1.3)
+            r = self.np_random.uniform(0.16, 0.20)
+            # keep them away from start & goal
+            if np.linalg.norm([x+1.2, y+1.2]) > 0.2 and \
+               np.linalg.norm([x-1.2, y-1.2]) > 0.2:
+                ob[i] = [x, y, r]
+                i += 1
+        return ob
+
     def reset(self, seed=None, options=None):
         # We need the following line to seed self.np_random
         super().reset(seed=seed)
 
         self._elapsed_steps = 0
 
-        mode = "test1"  # "test1", "test2", "train1", "train2"
+        mode = "test2"  # "test1", "test2", "train1", "train2"
 
         if mode == "train1":
             self._agent_state = np.array([-1.2, -1.2, 0.0])
@@ -188,39 +202,14 @@ class RobotWorldEnv(gym.Env):
             self._target_properties = np.array([1.2, 1.2, 0.08])
 
             # randomly generate obstacles
-            num_obstacles = 3
-            self._obstacles = np.zeros((num_obstacles, 3))
-
-            i = 0
-            # ensure obstacles are not too close to the agent or target
-            while i < num_obstacles:
-                x_sample = np.random.uniform(-1.3, 1.3)
-                y_sample = np.random.uniform(-1.3, 1.3)
-                r_sample = np.random.uniform(0.16, 0.20)
-
-                if np.linalg.norm(self._agent_state[:2] - [x_sample, y_sample]) > 0.2 and \
-                   np.linalg.norm(self._target_properties[:2] - [x_sample, y_sample]) > 0.2:
-                    self._obstacles[i] = [x_sample, y_sample, r_sample]
-                    i += 1
-            # for i in range(num_obstacles):
-            #     x_sample = np.random.uniform(-1.3, 1.3)
-            #     y_sample = np.random.uniform(-1.3, 1.3)
-            #     r_sample = np.random.uniform(0.16, 0.20)
-            #
-            #     self._obstacles[i] = [x_sample, y_sample, r_sample]
+            self._obstacles = self._generate_random_obstacles(num_obstacles=3)
 
         elif mode == "test3":
             self._agent_state = np.array([-1.2, -1.2, 0.0])
             self._target_properties = np.array([1.2, 1.2, 0.08])
 
             # randomly generate obstacles
-            num_obstacles = 3
-            self._obstacles = np.zeros((num_obstacles, 3))
-            for i in range(num_obstacles):
-                x_sample = np.random.uniform(-1.3, 1.3)
-                y_sample = np.random.uniform(-1.3, 1.3)
-                r_sample = np.random.uniform(0.16, 0.20)
-                self._obstacles[i] = [x_sample, y_sample, r_sample]
+            self._obstacles = self._generate_random_obstacles(num_obstacles=3)
 
         elif mode == "test9":
             x_sample = np.random.uniform(-1.3, 1.3)
@@ -235,13 +224,7 @@ class RobotWorldEnv(gym.Env):
             self._target_properties = np.array([x_sample, y_sample, 0.08])
 
             # randomly generate obstacles
-            num_obstacles = 3
-            self._obstacles = np.zeros((num_obstacles, 3))
-            for i in range(num_obstacles):
-                x_sample = np.random.uniform(-1.3, 1.3)
-                y_sample = np.random.uniform(-1.3, 1.3)
-                r_sample = np.random.uniform(0.16, 0.20)
-                self._obstacles[i] = [x_sample, y_sample, r_sample]
+            self._obstacles = self._generate_random_obstacles(num_obstacles=3)
 
 
         # if test_case == 0:

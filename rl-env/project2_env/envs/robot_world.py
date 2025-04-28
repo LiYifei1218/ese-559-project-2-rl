@@ -334,10 +334,10 @@ class RobotWorldEnv(gym.Env):
         vis_target_x = (self._target_properties[0] + 1.5) * vis_size
         vis_target_y = (self._target_properties[1] + 1.5) * vis_size
 
-
-
         vis_robot_x = (self._agent_state[0] + 1.5) * vis_size
         vis_robot_y = (self._agent_state[1] + 1.5) * vis_size
+
+
 
         if len(self.trace) >= 2:
             pts = [((tx + 1.5) * vis_size, (ty + 1.5) * vis_size)
@@ -358,13 +358,13 @@ class RobotWorldEnv(gym.Env):
 
         # Finally, add obstacles
         for obs in self._obstacles:
-            vis_obstacle_x = (obs[0] + 1.5) * vis_size
-            vis_obstacle_y = (obs[1] + 1.5) * vis_size
+            vis_obstacle_x = float((obs[0] + 1.5) * vis_size)
+            vis_obstacle_y = float((obs[1] + 1.5) * vis_size)
             pygame.draw.circle(
                 canvas,
                 (0, 255, 0),
                 (vis_obstacle_x, vis_obstacle_y),
-                vis_size * obs[2],
+                float(vis_size * obs[2]),
             )
 
         # First we draw the target

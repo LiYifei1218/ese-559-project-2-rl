@@ -9,7 +9,7 @@ import pickle
 from project2 import move
 
 class RobotWorldEnv(gym.Env):
-    metadata = {"render_modes": ["human", "rgb_array"], "render_fps": 30}
+    metadata = {"render_modes": ["human", "rgb_array"], "render_fps": 60}
 
     def __init__(self, render_mode=None, env_num=1):
 
@@ -167,7 +167,12 @@ class RobotWorldEnv(gym.Env):
 
         self._elapsed_steps = 0
 
-        mode = "test2"  # "test1", "test2", "train1", "train2"
+        # make sure options is a dict
+        options = {} if options is None else options
+
+        # pull mode (and any other keys) out of options
+        mode = options.get("mode", "test2")
+        resample = options.get("resample", True)
 
         if mode == "train1":
             self._agent_state = np.array([-1.2, -1.2, 0.0])
@@ -195,7 +200,12 @@ class RobotWorldEnv(gym.Env):
             ])
 
         elif mode == "train2":
-            pass
+            self._agent_state = np.array([-1.2, -1.2, 0.0])
+            self._target_properties = np.array([1.2, 1.2, 0.08])
+
+            if resample:
+                # randomly generate obstacles
+                self._obstacles = self._generate_random_obstacles(num_obstacles=3)
 
         elif mode == "test2":
             self._agent_state = np.array([-1.2, -1.2, 0.0])
@@ -204,49 +214,6 @@ class RobotWorldEnv(gym.Env):
             # randomly generate obstacles
             self._obstacles = self._generate_random_obstacles(num_obstacles=3)
 
-        elif mode == "test3":
-            self._agent_state = np.array([-1.2, -1.2, 0.0])
-            self._target_properties = np.array([1.2, 1.2, 0.08])
-
-            # randomly generate obstacles
-            self._obstacles = self._generate_random_obstacles(num_obstacles=3)
-
-        elif mode == "test9":
-            x_sample = np.random.uniform(-1.3, 1.3)
-            y_sample = np.random.uniform(-1.3, 1.3)
-            theta_sample = np.random.uniform(-np.pi, np.pi)
-
-            self._agent_state = np.array([x_sample, y_sample, theta_sample])
-
-            x_sample = np.random.uniform(-1.3, 1.3)
-            y_sample = np.random.uniform(-1.3, 1.3)
-
-            self._target_properties = np.array([x_sample, y_sample, 0.08])
-
-            # randomly generate obstacles
-            self._obstacles = self._generate_random_obstacles(num_obstacles=3)
-
-
-        # if test_case == 0:
-        #     self._agent_state = np.array([-1.2, -1.2, 0.0])
-        #
-        # if test_case == 1:
-        #
-        #     x_sample = np.random.uniform(-1.3, -1.2)
-        #     y_sample = np.random.uniform(-1.3, -1.2)
-        #     theta_sample = 0.0 #np.random.uniform(-np.pi, np.pi, size=(2,))
-        #
-        #     self._agent_state = np.array([x_sample, y_sample, theta_sample])
-        # elif test_case == 2:
-        #     self._agent_state = np.array([-1.2, -1.2, 0.0])
-        #
-        # if self.env_num == 1:
-        #     self._target_properties = np.array([1.2, 1.2, 0.08])
-        #     self._obstacles = np.array([
-        #         [-0.4, -0.4, 0.16],
-        #         [0.1, -0.4, 0.16],
-        #         [-0.4, 0.1, 0.17]
-        #     ])
 
         observation = self._get_obs()
         info = self._get_info()
